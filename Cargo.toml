@@ -1,0 +1,13 @@
+[package]
+name = "LofiPlayer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fs = "0.0.5"
+rand = "0.8.5"
+rodio = "0.17.1"
+thread = "0.1.0"
+tray-item = "0.7.1"
