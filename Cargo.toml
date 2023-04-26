@@ -10,4 +10,19 @@ fs = "0.0.5"
 rand = "0.8.5"
 rodio = "0.17.1"
 thread = "0.1.0"
-tray-item = "0.7.1"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "1.1.1", features = ["api-all", "system-tray"] }
+crossbeam-channel = "0.5.8"
+
+
+[build-dependencies]
+tauri-build = { version = "1.1.1", features = [] }
+
+[features]
+# by default Tauri runs in production mode
+# when `tauri dev` runs it is executed with `cargo run --no-default-features` if `devPath` is an URL
+default = [ "custom-protocol" ]
+# this feature is used for production builds where `devPath` points to the filesystem
+# DO NOT remove this
+custom-protocol = [ "tauri/custom-protocol" ]
