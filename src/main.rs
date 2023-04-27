@@ -7,10 +7,11 @@
 use tauri::{
     AppHandle, CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem,
 };
-
+extern crate single_instance;
 use crossbeam_channel::{tick, unbounded, Receiver, Sender};
 use rodio::source::Source;
 use rodio::{Decoder, OutputStream, Sink};
+use single_instance::SingleInstance;
 use std::iter::Iterator;
 use std::path::Path;
 use std::sync::mpsc;
@@ -23,6 +24,9 @@ static mut PLAYING: bool = true; //whether or not the player is playing
 
 //main method
 fn main() {
+    //make sure the program is single instance
+    let instance = SingleInstance::new("whatever").unwrap();
+    assert!(instance.is_single());
     //define the tray menu
     let tray_menu = SystemTrayMenu::new()
         .add_item(CustomMenuItem::new("quit".to_string(), "Quit"))
@@ -102,13 +106,25 @@ fn createMusicThread() -> Sender<String> {
             }
             //play the background music
             if (backgroundSink.empty()) {
-                backgroundFile = getRndTrack(&backgroundDirectory);
-                playTrack(&backgroundSink, backgroundFile);
+                let opt = getRndTrack(&backgroundDirectory);
+                match opt {
+                    None => {}
+                    Some(_) => {
+                        backgroundFile = opt.unwrap();
+                        playTrack(&backgroundSink, backgroundFile);
+                    }
+                }
             }
             //play the lofi music
             if (lofiSink.empty()) {
-                lofiFile = getRndTrack(&lofiDirectory);
-                playTrack(&lofiSink, lofiFile);
+                let opt = getRndTrack(&lofiDirectory);
+                match opt {
+                    None => {}
+                    Some(_) => {
+                        lofiFile = opt.unwrap();
+                        playTrack(&lofiSink, lofiFile);
+                    }
+                }
             }
         }
 
@@ -152,17 +168,27 @@ fn on_system_tray_event(app: &AppHandle, event: SystemTrayEvent) {
  * function to get a random file from a given directory
  * directory - the directory to get a random file from
  */
-fn getRndTrack(directory: &str) -> File {
+fn getRndTrack(directory: &str) -> Option<File> {
     let mut rng = rand::thread_rng();
     let files = fs::read_dir(directory).unwrap();
     let file;
 
     let itr = rand::seq::IteratorRandom::choose(files, &mut rand::thread_rng());
-    let binding = itr.unwrap().unwrap().path();
-    println!("got track: {}", binding.to_str().unwrap());
-    file = binding.to_str().unwrap();
+    match itr {
+        None => return None,
+        Some(_) => {
+            let binding = itr.unwrap().unwrap().path();
+            println!("got track: {}", binding.to_str().unwrap());
+            file = binding.to_str().unwrap();
 
-    return File::open(file).unwrap();
+            return Option::from(File::open(file).unwrap());
+        }
+    }
+    // let binding = itr.unwrap().unwrap().path();
+    // println!("got track: {}", binding.to_str().unwrap());
+    // file = binding.to_str().unwrap();
+
+    // return Option::from(File::open(file).unwrap());
 }
 
 /**
