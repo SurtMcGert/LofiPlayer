@@ -1,38 +1,41 @@
+//all the imports and configs
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
 )]
 
 use tauri::{
-    api::shell::open, AppHandle, CustomMenuItem, Manager, SystemTray, SystemTrayEvent,
-    SystemTrayMenu, SystemTrayMenuItem, SystemTraySubmenu,
+    AppHandle, CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem,
 };
 
+use crossbeam_channel::{tick, unbounded, Receiver, Sender};
 use rodio::source::Source;
 use rodio::{Decoder, OutputStream, Sink};
 use std::iter::Iterator;
 use std::path::Path;
 use std::sync::mpsc;
-// use std::sync::mpsc::{self, TryRecvError};
-use crossbeam_channel::{tick, unbounded, Receiver, Sender};
 use std::time::{Duration, Instant};
 use std::{fs, thread};
 use std::{fs::File, io::BufReader};
 
-static mut MUSIC_THREAD: Option<Sender<String>> = None;
-static mut PLAYING: bool = true;
+static mut MUSIC_THREAD: Option<Sender<String>> = None; //the sender side of the channel to communicate with the music thread
+static mut PLAYING: bool = true; //whether or not the player is playing
 
+//main method
 fn main() {
+    //define the tray menu
     let tray_menu = SystemTrayMenu::new()
         .add_item(CustomMenuItem::new("quit".to_string(), "Quit"))
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(CustomMenuItem::new("playPause-toggle".to_string(), "Pause"));
 
+    //create a tray with the menu defined above
     let tray = SystemTray::new().with_menu(tray_menu);
 
     //create a thread to run the music
     unsafe { MUSIC_THREAD = Option::from(createMusicThread()) };
 
+    //start the tray application
     tauri::Builder::default()
         .system_tray(tray)
         .on_system_tray_event(on_system_tray_event)
@@ -46,6 +49,10 @@ fn main() {
         });
 }
 
+/**
+ * function to create a thread that will handle all the music
+ * returns Sender<String> a way to pass messages to the thread
+ */
 fn createMusicThread() -> Sender<String> {
     println!("creating music thread");
     let (tx, rx): (Sender<String>, Receiver<String>) = unbounded();
@@ -110,6 +117,10 @@ fn createMusicThread() -> Sender<String> {
     return tx;
 }
 
+/**
+ * a function to define the tray menu button actions
+ * this function gets passed to the tauri builder
+ */
 fn on_system_tray_event(app: &AppHandle, event: SystemTrayEvent) {
     match event {
         SystemTrayEvent::MenuItemClick { id, .. } => {
@@ -137,7 +148,10 @@ fn on_system_tray_event(app: &AppHandle, event: SystemTrayEvent) {
     }
 }
 
-//function to get a random track
+/**
+ * function to get a random file from a given directory
+ * directory - the directory to get a random file from
+ */
 fn getRndTrack(directory: &str) -> File {
     let mut rng = rand::thread_rng();
     let files = fs::read_dir(directory).unwrap();
@@ -151,7 +165,11 @@ fn getRndTrack(directory: &str) -> File {
     return File::open(file).unwrap();
 }
 
-//function to play a track
+/**
+ * function to play a given track on a given sink
+ * sink - the sink to play the track
+ * file - the file to play
+ */
 fn playTrack(sink: &Sink, file: File) {
     println!("playing track");
     // Decode that sound file into a source
