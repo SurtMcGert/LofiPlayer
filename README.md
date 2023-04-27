@@ -11,6 +11,12 @@ Its intention is to play lofi music with some background sound such as rain nois
 
 download the windows installer from the releases section and run it.
 
+# Update
+
+---
+
+download the `lofiPlayer.exe` from the latest release and put it in your lofiPlayer install location and replace the original `exe` file
+
 # Usage
 
 ---
