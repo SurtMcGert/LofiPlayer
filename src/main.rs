@@ -9,11 +9,16 @@ use tauri::{
 };
 extern crate single_instance;
 use crossbeam_channel::{tick, unbounded, Receiver, Sender};
+use native_dialog::{FileDialog, MessageDialog, MessageType};
 use rodio::source::Source;
 use rodio::{Decoder, OutputStream, Sink};
 use single_instance::SingleInstance;
+use std::env;
+use std::io::Read;
+use std::io::Write;
+use std::io::{self, BufRead};
 use std::iter::Iterator;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use std::{fs, thread};
@@ -24,6 +29,10 @@ static mut PLAYING: bool = true; //whether or not the player is playing
 
 //main method
 fn main() {
+    //read the tracks directory
+    let trackDir = readTrackDir();
+    println!("{}", trackDir);
+
     //make sure the program is single instance
     let instance = SingleInstance::new("whatever").unwrap();
     assert!(instance.is_single());
@@ -31,13 +40,17 @@ fn main() {
     let tray_menu = SystemTrayMenu::new()
         .add_item(CustomMenuItem::new("quit".to_string(), "Quit"))
         .add_native_item(SystemTrayMenuItem::Separator)
+        .add_item(CustomMenuItem::new(
+            "changeTrackDir".to_string(),
+            trackDir.to_owned(),
+        ))
         .add_item(CustomMenuItem::new("playPause-toggle".to_string(), "Pause"));
 
     //create a tray with the menu defined above
     let tray = SystemTray::new().with_menu(tray_menu);
 
     //create a thread to run the music
-    unsafe { MUSIC_THREAD = Option::from(createMusicThread()) };
+    unsafe { MUSIC_THREAD = Option::from(createMusicThread(trackDir.to_owned())) };
 
     //start the tray application
     tauri::Builder::default()
@@ -57,12 +70,13 @@ fn main() {
  * function to create a thread that will handle all the music
  * returns Sender<String> a way to pass messages to the thread
  */
-fn createMusicThread() -> Sender<String> {
+fn createMusicThread(trackDir: String) -> Sender<String> {
     println!("creating music thread");
     let (tx, rx): (Sender<String>, Receiver<String>) = unbounded();
     let handle = thread::spawn(move || {
-        let lofiDirectory = "tracks/lofiMusic"; //directory for lofi music
-        let backgroundDirectory = "tracks/backgroundSound"; //direcory for background music
+        let mut trackDirectory = trackDir.to_owned();
+        let lofiDirectory = unsafe { trackDirectory.to_owned() } + "\\lofiMusic"; //directory for lofi music
+        let backgroundDirectory = unsafe { trackDirectory.to_owned() } + "\\backgroundSound"; //direcory for background music
 
         //set up the background music
         let mut backgroundFile: File;
@@ -88,17 +102,20 @@ fn createMusicThread() -> Sender<String> {
                             println!("playing");
                             backgroundSink.play();
                             lofiSink.play();
-                            // continue;
                         }
                         "PAUSE" => {
                             println!("pausing");
                             backgroundSink.pause();
                             lofiSink.pause();
-                            // continue;
                         }
-                        _ => {}
+                        _ => {
+                            if(msg.starts_with("trackDir:")){
+                                let tmp = (msg.strip_prefix("trackDir:").unwrap());
+                                println!("new dir: {}", tmp.to_owned());
+                                trackDirectory = tmp.to_owned();
+                            }
+                        }
                     }
-                    // continue;
                 }
                 _ => {}
             }
@@ -156,6 +173,27 @@ fn on_system_tray_event(app: &AppHandle, event: SystemTrayEvent) {
                     }
                     _ => {}
                 },
+                "changeTrackDir" => {
+                    println!("selecting track directory");
+                    let inputPath = FileDialog::new()
+                        .set_filename("select track directory")
+                        .set_location("~/Documents")
+                        .show_open_single_dir()
+                        .unwrap();
+
+                    let trackPath = match inputPath {
+                        Some(inputPath) => inputPath,
+                        None => return,
+                    };
+                    let trackDir = trackPath.to_str().unwrap();
+                    unsafe {
+                        (&MUSIC_THREAD.as_ref()).unwrap().send(
+                            ("trackDir:".to_string() + trackDir.to_owned().as_str()).to_string(),
+                        )
+                    };
+                    updateTrackDir(trackDir.to_owned());
+                    item_handle.set_title(trackDir).unwrap();
+                }
                 "quit" => app.exit(0),
                 _ => {}
             }
@@ -184,11 +222,6 @@ fn getRndTrack(directory: &str) -> Option<File> {
             return Option::from(File::open(file).unwrap());
         }
     }
-    // let binding = itr.unwrap().unwrap().path();
-    // println!("got track: {}", binding.to_str().unwrap());
-    // file = binding.to_str().unwrap();
-
-    // return Option::from(File::open(file).unwrap());
 }
 
 /**
@@ -202,4 +235,60 @@ fn playTrack(sink: &Sink, file: File) {
     let mut source = Decoder::new(file).unwrap();
     //add the sound to the sink
     sink.append(source);
+}
+
+/**
+ * function to read the track directory path
+ */
+fn readTrackDir() -> String {
+    println!("getting track directory");
+    let fileName = "trackDirPath.txt".to_string();
+    let filePath = fs::canonicalize(&PathBuf::from(fileName.clone()));
+    let currentDir = env::current_dir().unwrap();
+
+    let mut trackDir = fs::canonicalize(&PathBuf::from("tracks".to_string()))
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    match filePath {
+        Ok(path) => {
+            let file = fs::File::open(path.display().to_string());
+            match file {
+                Ok(file) => {
+                    for line in io::BufReader::new(file).lines() {
+                        match line {
+                            Ok(line) => {
+                                trackDir = line;
+                            }
+                            Err(e) => {
+                                println!("{}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("{}", e);
+                }
+            };
+        }
+        Err(e) => {
+            println!("file doesnt exist, creating one");
+            let mut newFile =
+                fs::File::create(currentDir.display().to_string() + fileName.as_str()).unwrap();
+            newFile.write_all(trackDir.as_bytes()).unwrap();
+        }
+    }
+    return trackDir;
+}
+
+/**
+ * a function to update the tack directory
+ */
+fn updateTrackDir(path: String) {
+    println!("updating track directory");
+    let fileName = "trackDirPath.txt".to_string();
+    let filePath = fs::canonicalize(&PathBuf::from(fileName.clone())).unwrap();
+    fs::write(filePath.as_path(), path).unwrap();
 }
