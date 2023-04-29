@@ -7,6 +7,8 @@
 use tauri::{
     AppHandle, CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem,
 };
+
+extern crate dirs;
 extern crate single_instance;
 use crossbeam_channel::{tick, unbounded, Receiver, Sender};
 use native_dialog::{FileDialog, MessageDialog, MessageType};
@@ -242,45 +244,42 @@ fn playTrack(sink: &Sink, file: File) {
  */
 fn readTrackDir() -> String {
     println!("getting track directory");
+    let appData = dirs::config_dir().unwrap().display().to_string();
+    let appDataStr = appData.to_owned();
+    let mut binding = Path::new(appDataStr.as_str()).join("\\LofiPlayer");
+    let appDir = binding.as_path();
+    let binding = Path::new(appDir).join("tracks");
+    let mut trackDir = binding.as_path();
     let fileName = "trackDirPath.txt".to_string();
-    let filePath = fs::canonicalize(&PathBuf::from(fileName.clone()));
-    let currentDir = env::current_dir().unwrap();
+    let filePath = Path::new(appDir).join(fileName.as_str());
 
-    let mut trackDir = fs::canonicalize(&PathBuf::from("tracks".to_string()))
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_owned();
+    let trackDirBuf = if (appDir.exists()) {
+        //if the app directory exists
+        let mut file = fs::File::open(filePath.display().to_string()).unwrap();
+        let reader = BufReader::new(&mut file);
+        let line = reader.lines().next().unwrap().unwrap();
+        let lineCopy = line.clone();
+        PathBuf::from(lineCopy.as_str())
+    } else {
+        //if the app directory doesn't exist
+        println!("appDir doesnt exist, creating it");
+        //create the app directory
+        fs::create_dir(appDir).unwrap();
+        //create the tracks directory
+        fs::create_dir(trackDir).unwrap();
+        //create the lofi and background directories
+        fs::create_dir(trackDir.join("lofiMusic")).unwrap();
+        fs::create_dir(trackDir.join("backgroundSound")).unwrap();
+        //create the trackDirPath.txt file
+        let mut newFile = fs::File::create(filePath).unwrap();
+        newFile
+            .write_all(trackDir.display().to_string().as_bytes())
+            .unwrap();
+        PathBuf::from(trackDir)
+    };
 
-    match filePath {
-        Ok(path) => {
-            let file = fs::File::open(path.display().to_string());
-            match file {
-                Ok(file) => {
-                    for line in io::BufReader::new(file).lines() {
-                        match line {
-                            Ok(line) => {
-                                trackDir = line;
-                            }
-                            Err(e) => {
-                                println!("{}", e);
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    println!("{}", e);
-                }
-            };
-        }
-        Err(e) => {
-            println!("file doesnt exist, creating one");
-            let mut newFile =
-                fs::File::create(currentDir.display().to_string() + fileName.as_str()).unwrap();
-            newFile.write_all(trackDir.as_bytes()).unwrap();
-        }
-    }
-    return trackDir;
+    trackDir = trackDirBuf.as_path();
+    return trackDir.display().to_string();
 }
 
 /**
