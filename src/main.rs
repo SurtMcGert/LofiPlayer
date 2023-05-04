@@ -283,7 +283,7 @@ fn readTrackDir() -> String {
 }
 
 /**
- * a function to update the tack directory
+ * a function to update the track directory
  */
 fn updateTrackDir(path: String) {
     println!("updating track directory");
