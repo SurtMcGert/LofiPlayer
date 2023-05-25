@@ -21,6 +21,7 @@ use std::io::Write;
 use std::io::{self, BufRead};
 use std::iter::Iterator;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use std::{fs, thread};
@@ -42,20 +43,21 @@ fn main() {
     let tray_menu = SystemTrayMenu::new()
         .add_item(CustomMenuItem::new("quit".to_string(), "Quit"))
         .add_native_item(SystemTrayMenuItem::Separator)
+        .add_item(CustomMenuItem::new("volUp".to_string(), "vol+"))
+        .add_item(CustomMenuItem::new("volDown".to_string(), "vol-"))
         .add_item(CustomMenuItem::new(
-            "changeTrackDir".to_string(),
-            trackDir.to_owned(),
+            "openTrackDir".to_string(),
+            "open track folder",
         ))
         .add_item(CustomMenuItem::new("playPause-toggle".to_string(), "Pause"));
 
     //create a tray with the menu defined above
     let tray = SystemTray::new().with_menu(tray_menu);
-
     //create a thread to run the music
     unsafe { MUSIC_THREAD = Option::from(createMusicThread(trackDir.to_owned())) };
 
     //start the tray application
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .system_tray(tray)
         .on_system_tray_event(on_system_tray_event)
         .build(tauri::generate_context!())
@@ -109,6 +111,20 @@ fn createMusicThread(trackDir: String) -> Sender<String> {
                             println!("pausing");
                             backgroundSink.pause();
                             lofiSink.pause();
+                        }
+                        "UP" => {
+                            println!("up");
+                            let mut vol = lofiSink.volume();
+                            vol += 0.1;
+                            lofiSink.set_volume(vol);
+                            backgroundSink.set_volume(vol * 0.4);
+                        }
+                        "DOWN" => {
+                            println!("down");
+                            let mut vol = lofiSink.volume();
+                            vol -= 0.1;
+                            lofiSink.set_volume(vol);
+                            backgroundSink.set_volume(vol * 0.4);
                         }
                         _ => {
                             if(msg.starts_with("trackDir:")){
@@ -175,26 +191,21 @@ fn on_system_tray_event(app: &AppHandle, event: SystemTrayEvent) {
                     }
                     _ => {}
                 },
-                "changeTrackDir" => {
-                    println!("selecting track directory");
-                    let inputPath = FileDialog::new()
-                        .set_filename("select track directory")
-                        .set_location("~/Documents")
-                        .show_open_single_dir()
-                        .unwrap();
+                "volUp" => {
+                    println!("volume up");
+                    unsafe { (&MUSIC_THREAD.as_ref()).unwrap().send("UP".to_string()) };
+                }
+                "volDown" => {
+                    println!("volume down");
+                    unsafe { (&MUSIC_THREAD.as_ref()).unwrap().send("DOWN".to_string()) };
+                }
+                "openTrackDir" => {
+                    println!("opening track directory");
+                    let mut cmd = Command::new("explorer");
+                    let trackDir = readTrackDir();
+                    cmd.arg(trackDir);
 
-                    let trackPath = match inputPath {
-                        Some(inputPath) => inputPath,
-                        None => return,
-                    };
-                    let trackDir = trackPath.to_str().unwrap();
-                    unsafe {
-                        (&MUSIC_THREAD.as_ref()).unwrap().send(
-                            ("trackDir:".to_string() + trackDir.to_owned().as_str()).to_string(),
-                        )
-                    };
-                    updateTrackDir(trackDir.to_owned());
-                    item_handle.set_title(trackDir).unwrap();
+                    let child = cmd.spawn().unwrap();
                 }
                 "quit" => app.exit(0),
                 _ => {}
@@ -280,14 +291,4 @@ fn readTrackDir() -> String {
 
     trackDir = trackDirBuf.as_path();
     return trackDir.display().to_string();
-}
-
-/**
- * a function to update the tack directory
- */
-fn updateTrackDir(path: String) {
-    println!("updating track directory");
-    let fileName = "trackDirPath.txt".to_string();
-    let filePath = fs::canonicalize(&PathBuf::from(fileName.clone())).unwrap();
-    fs::write(filePath.as_path(), path).unwrap();
 }
